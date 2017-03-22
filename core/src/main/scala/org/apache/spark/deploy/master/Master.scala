@@ -132,9 +132,14 @@ private[deploy] class Master(
     webUi.bind()
     masterWebUiUrl = "http://" + masterPublicAddress + ":" + webUi.boundPort
     if (reverseProxy) {
-      masterWebUiUrl = conf.get("spark.ui.reverseProxyUrl", masterWebUiUrl)
+      conf.getOption("spark.ui.reverseProxyUrl") map { reverseProxyUrl =>
+        // TODO handle trailing slash and optional hostname
+        masterWebUiUrl = reverseProxyUrl
+        System.setProperty("spark.ui.proxyBase", reverseProxyUrl)
+      }
       logInfo(s"Spark Master is acting as a reverse proxy. Master, Workers and " +
        s"Applications UIs are available at $masterWebUiUrl")
+
     }
     checkForWorkerTimeOutTask = forwardMessageThread.scheduleAtFixedRate(new Runnable {
       override def run(): Unit = Utils.tryLogNonFatalError {

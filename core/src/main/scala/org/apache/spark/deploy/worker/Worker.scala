@@ -203,7 +203,9 @@ private[deploy] class Worker(
     master = Some(masterRef)
     connected = true
     if (conf.getBoolean("spark.ui.reverseProxy", false)) {
-      logInfo(s"WorkerWebUI is available at $activeMasterWebUiUrl/proxy/$workerId")
+      val proxyUrl = s"$activeMasterWebUiUrl/proxy/$workerId"
+      System.setProperty("spark.ui.proxyBase", proxyUrl)
+      logInfo(s"WorkerWebUI is available at $proxyUrl")
     }
     // Cancel any outstanding re-registration attempts because we found a new master
     cancelLastRegistrationRetry()
