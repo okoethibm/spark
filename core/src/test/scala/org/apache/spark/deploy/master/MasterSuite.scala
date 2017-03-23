@@ -174,7 +174,57 @@ class MasterSuite extends SparkFunSuite
 
   test("master/worker web ui available with reverseProxy") {
     implicit val formats = org.json4s.DefaultFormats
-    val reverseProxyUrl = "http://proxyhost:8080"
+    val conf = new SparkConf()
+    conf.set("spark.ui.reverseProxy", "true")
+    val localCluster = new LocalSparkCluster(2, 2, 512, conf)
+    localCluster.start()
+    val masterUrl = s"http://localhost:${localCluster.masterWebUIPort}"
+    try {
+      eventually(timeout(5 seconds), interval(100 milliseconds)) {
+        val json = Source.fromURL(s"$masterUrl/json")
+          .getLines().mkString("\n")
+        val JArray(workers) = (parse(json) \ "workers")
+        workers.size should be (2)
+        workers.foreach { workerSummaryJson =>
+          // the webuiaddress intentionally points to the local web ui.
+          // explicitly construct reverse proxy url targeting the master
+          val JString(workerId) = workerSummaryJson \ "id"
+          val url = s"$masterUrl/proxy/${workerId}/json"
+          val workerResponse = parse(Source.fromURL(url).getLines().mkString("\n"))
+          (workerResponse \ "cores").extract[Int] should be (2)
+        }
+
+        // with LocalCluster, we have masters and workers in the same JVM, each overwriting
+        // system property spark.ui.proxyBase.
+        // so we need to manage this property explicitly for test
+        System.getProperty("spark.ui.proxyBase") should startWith ("/proxy/worker-")
+        System.getProperties().remove("spark.ui.proxyBase")
+        val html = Source.fromURL(s"$masterUrl/").getLines().mkString("\n")
+        html should include ("Spark Master at spark://")
+        html should include ("""href="/static""")
+        html should include ("""src="/static""")
+
+        val workerLinks = (WORKER_LINK_RE findAllMatchIn html).toList
+        workerLinks.size should be (2)
+        workerLinks foreach { case WORKER_LINK_RE(workerUrl, workerId) =>
+          workerUrl should be (s"/proxy/$workerId")
+          val url = s"$masterUrl/proxy/${workerId}/"
+          System.setProperty("spark.ui.proxyBase", workerUrl)
+          val workerHtml = Source.fromURL(url).getLines().mkString("\n")
+          workerHtml should include ("Spark Worker at")
+          workerHtml should include ("Running Executors (0)")
+          verifyStaticResourcesServedByProxy(workerHtml, workerUrl)
+        }
+      }
+    } finally {
+      localCluster.stop()
+      System.getProperties().remove("spark.ui.proxyBase")
+    }
+  }
+
+  test("master/worker web ui available behind front-end reverseProxy") {
+    implicit val formats = org.json4s.DefaultFormats
+    val reverseProxyUrl = "http://proxyhost:8080/path/to/spark"
     val conf = new SparkConf()
     conf.set("spark.ui.reverseProxy", "true")
     conf.set("spark.ui.reverseProxyUrl", reverseProxyUrl)
