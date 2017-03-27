@@ -133,8 +133,10 @@ private[deploy] class Master(
     masterWebUiUrl = "http://" + masterPublicAddress + ":" + webUi.boundPort
     if (reverseProxy) {
       conf.getOption("spark.ui.reverseProxyUrl") map { reverseProxyUrl =>
-        masterWebUiUrl = reverseProxyUrl
         System.setProperty("spark.ui.proxyBase", reverseProxyUrl.stripSuffix("/"))
+        // if the master URL has a path component, it must end with a slash. Otherwise the browser generates
+        // incorrect relative links
+        masterWebUiUrl = "%s/".format(reverseProxyUrl.stripSuffix("/"))
       }
       logInfo(s"Spark Master is acting as a reverse proxy. Master, Workers and " +
        s"Applications UIs are available at $masterWebUiUrl")
